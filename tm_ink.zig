@@ -1,4 +1,6 @@
-// zig build-lib tm_ink.zig -I C:/work/themachinery --library c -dynamic
+// zig build-lib tm_ink.zig -I C:/work/themachinery -I . --library c -dynamic
+
+// C# parser reference: https://github.com/inkle/ink/blob/master/ink-engine-runtime/Story.cs
 
 const std = @import("std");
 
@@ -17,6 +19,7 @@ const c = @cImport({
     @cInclude("plugins/editor_views/asset_browser.h");
     
     @cInclude("tm_ink.h");
+    @cInclude("tm_ink_internal.h");
 });
 
 var tm_global_api_registry: c.tm_api_registry_api = undefined;
@@ -27,7 +30,35 @@ var tm_json_api: c.tm_json_api = undefined;
 var tm_config_api: c.tm_config_api = undefined;
 var tm_allocator_api: c.tm_allocator_api = undefined;
 
+const Container = struct {
+    countFlags: u32 = 0,
+};
+
 const ink_template = "Test ink template";
+const story =
+    \\ {
+    \\     "inkVersion": 20,
+    \\     "root": [
+    \\         [
+    \\             "^Smallest story!",
+    \\             "\n",
+    \\             [
+    \\                 "done",
+    \\                 {
+    \\                     "#f": 5,
+    \\                     "#n": "g-0"
+    \\                 }
+    \\             ],
+    \\             null
+    \\         ],
+    \\         "done",
+    \\         {
+    \\             "#f": 1
+    \\         }
+    \\     ],
+    \\     "listDefs": {}
+    \\ }
+;
 
 var plugin_tick_i: c.tm_plugin_tick_i = undefined;
 var asset_browser__create_asset__ink_file_i: c.tm_asset_browser_create_asset_i = undefined;
@@ -43,7 +74,8 @@ fn initVars() void {
 }
 
 fn tick(inst: ?*c.tm_plugin_o, dt: f32) callconv(.C) void {
-    parse("");
+    const empty = Container{};
+    _ = parseStory(story) catch empty;
 }
 
 fn asset_browser__create_asset__ink_file(inst: ?*c.tm_asset_browser_create_asset_o, tt: ?*c.tm_the_truth_o, undo_scope: c.tm_tt_undo_scope_t) callconv(.C) c.tm_tt_id_t
@@ -68,18 +100,70 @@ fn truth__create_types(tt: ?*c.tm_the_truth_o) callconv(.C) void {
     // tm_the_truth_api->set_aspect(tt, c_file, TM_TT_ASPECT__ASSET_OPEN, &asset__open__c_file_i);
 }
 
-fn parse(str: [*:0]const u8) void {
+const ParseError = error {
+    InkVersionNotFound,
+    InkVersionNot20,
+    RootNotFound,
+};
+
+fn parseStory(jsonString: [*:0]const u8) !Container {
     var allocator = tm_allocator_api.system;
-    var config = tm_config_api.create.?(allocator);
+    var config = tm_config_api.create.?(allocator).*;
     
     var err: [c.TM_JSON_ERROR_STRING_LENGTH+1]u8 = undefined;
     const opt = @intToEnum(c.enum_tm_json_parse_ext, 0);
 
-    _ = tm_json_api.parse.?("{\"inkVersion\": 20}", config, opt, &err);
-    const root = config.*.root.?(config.*.inst);
-    const version_o = config.*.object_get.?(config.*.inst, root, c.INK_VERSION);
-    const version = config.*.to_number.?(config.*.inst, version_o);
-      _ = tm_logger_api.printf.?(c.tm_log_type.TM_LOG_TYPE_INFO, "Ink version: %f", version);
+    _ = tm_json_api.parse.?(jsonString, &config, opt, &err);
+    const docRoot = config.root.?(config.inst);
+    const version_o = config.object_get.?(config.inst, docRoot, c.INK_VERSION);
+    const version = config.to_number.?(config.inst, version_o);
+    if (version == 0) {
+        return ParseError.InkVersionNotFound;
+    } else if (version != 20) {
+        return ParseError.InkVersionNot20;
+    }
+
+    const root = config.object_get.?(config.inst, docRoot, c.ROOT);
+    if (root.u32 == tm_config_api.c_null.u32)
+        return ParseError.RootNotFound;
+
+    // TODO: listDefs
+
+    return itemToContainer(config, root);
+}
+
+fn itemToContainer(config: c.tm_config_i, item: c.tm_config_item_t) !Container {
+    var container = Container{};
+
+    var items: [*c]c.tm_config_item_t = undefined;
+    const n = config.to_array.?(config.inst, item, &items);
+
+    // TODO: arrayToObjectList()
+
+    // Final object in the array is always a combination of
+    //  - named content
+    //  - a "#f" key with the countFlags
+    // (if either exists at all, otherwise null)
+    const last = items[n-1];
+    var lastKeys: [*c]c.tm_config_item_t = undefined;
+    var lastValues: [*c]c.tm_config_item_t = undefined;
+    const lastN = config.to_object.?(config.inst, last, &lastKeys, &lastValues);
+    const lastKeysSlice = lastKeys[0..lastN];
+    for (lastKeysSlice) |key, i| {
+        const keyStr = config.to_string.?(config.inst, key);
+        if (std.cstr.cmp(keyStr, "#f") == 0) {
+            container.countFlags = @floatToInt(u32, config.to_number.?(config.inst, lastValues[i]));
+             _ = tm_logger_api.printf.?(c.tm_log_type.TM_LOG_TYPE_INFO, "Count flags %d.\n", container.countFlags);
+        } else if (std.cstr.cmp(keyStr, "#n") == 0) {
+            // TODO: Read name
+        } else {
+            // TODO: Add to namedOnlyContent
+        }
+    }
+
+
+
+    return Container{};
 }
 
 export fn tm_load_plugin(reg: *c.tm_api_registry_api, load: bool) void {

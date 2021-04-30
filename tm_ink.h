@@ -15,5 +15,3 @@ struct tm_ink_api {
 };
 
 #define TM_INK_API_NAME "tm_ink_api"
-
-#define INK_VERSION TM_STATIC_HASH("inkVersion", 0x5c5d8b0ca9c9d407ULL)
