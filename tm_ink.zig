@@ -38,10 +38,14 @@ const Container = struct {
 
 const RuntimeObjectType = enum {
     empty,
+    bool,
+    number,
     container,
 };
 
 const RuntimeObject = union(RuntimeObjectType) {
+    bool: bool,
+    number: f64,
     empty: void,
     container: Container,
 };
@@ -159,11 +163,29 @@ fn itemType(item: c.tm_config_item_t) c.enum_tm_config_type {
 }
 
 fn itemToRuntimeObject(config: c.tm_config_i, item: c.tm_config_item_t) !RuntimeObject {
-    if (itemType(item) == c.enum_tm_config_type.TM_CONFIG_TYPE_ARRAY) {
-        return RuntimeObject{.container = try itemToContainer(config, item)};
-    }
-    return RuntimeObject{.empty = {}};
+    return switch(itemType(item)) {
+        c.enum_tm_config_type.TM_CONFIG_TYPE_FALSE =>
+            RuntimeObject{.bool = false},
+
+        c.enum_tm_config_type.TM_CONFIG_TYPE_TRUE =>
+            RuntimeObject{.bool = true},
+
+        c.enum_tm_config_type.TM_CONFIG_TYPE_NUMBER =>
+             RuntimeObject{.number = try itemToNumber(config, item)},
+
+        c.enum_tm_config_type.TM_CONFIG_TYPE_ARRAY =>
+            RuntimeObject{.container = try itemToContainer(config, item)},
+
+        // TODO: Handle strings and dictionaries
+
+        else => RuntimeObject{.empty = {}},
+    };
 }
+
+fn itemToNumber(config: c.tm_config_i, item: c.tm_config_item_t) ParseError!f64 {
+    return config.to_number.?(config.inst, item);
+}
+
 
 fn itemToContainer(config: c.tm_config_i, item: c.tm_config_item_t) ParseError!Container {
     var container = Container{};
