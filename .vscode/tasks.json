@@ -16,6 +16,8 @@
                     "tm_ink.zig",
                     "-I",
                     "C:/work/themachinery",
+                    "-I",
+                    ".",
                     "--library",
                     "c",
                     "-dynamic"
