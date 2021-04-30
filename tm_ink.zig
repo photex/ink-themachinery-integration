@@ -31,9 +31,19 @@ var tm_config_api: c.tm_config_api = undefined;
 var tm_allocator_api: c.tm_allocator_api = undefined;
 
 const Container = struct {
-    content: []Container = undefined,
+    content: []RuntimeObject = undefined,
     countFlags: u32 = 0,
     name: []u8 = undefined,
+};
+
+const RuntimeObjectType = enum {
+    empty,
+    container,
+};
+
+const RuntimeObject = union(RuntimeObjectType) {
+    empty: void,
+    container: Container,
 };
 
 const ink_template = "Test ink template";
@@ -135,9 +145,9 @@ fn parseStory(jsonString: [*:0]const u8) !Container {
     return itemToContainer(config, root);
 }
 
-fn arrayToObjectList(config: c.tm_config_i, items: []c.tm_config_item_t) ![]Container {
+fn arrayToObjectList(config: c.tm_config_i, items: []c.tm_config_item_t) ![]RuntimeObject {
     const allocator = std.heap.c_allocator;
-    const objects = try allocator.alloc(Container, items.len);
+    const objects = try allocator.alloc(RuntimeObject, items.len);
     for (items) |item, i| {
         objects[i] = try itemToRuntimeObject(config, item);
     }
@@ -148,11 +158,11 @@ fn itemType(item: c.tm_config_item_t) c.enum_tm_config_type {
     return @intToEnum(c.enum_tm_config_type, @intCast(c_int, item.u32 & 7));
 }
 
-fn itemToRuntimeObject(config: c.tm_config_i, item: c.tm_config_item_t) !Container {
+fn itemToRuntimeObject(config: c.tm_config_i, item: c.tm_config_item_t) !RuntimeObject {
     if (itemType(item) == c.enum_tm_config_type.TM_CONFIG_TYPE_ARRAY) {
-        return itemToContainer(config, item);
+        return RuntimeObject{.container = try itemToContainer(config, item)};
     }
-    return Container{};
+    return RuntimeObject{.empty = {}};
 }
 
 fn itemToContainer(config: c.tm_config_i, item: c.tm_config_item_t) ParseError!Container {
