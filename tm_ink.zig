@@ -9,7 +9,13 @@ const c = @cImport({
     @cInclude("foundation/the_truth.h");
     @cInclude("foundation/the_truth_assets.h");
     @cInclude("foundation/plugin_callbacks.h");
+    @cInclude("foundation/json.h");
+    @cInclude("foundation/config.h");
+    @cInclude("foundation/allocator.h");
+    @cInclude("foundation/murmurhash64a.inl");
+    
     @cInclude("plugins/editor_views/asset_browser.h");
+    
     @cInclude("tm_ink.h");
 });
 
@@ -17,6 +23,9 @@ var tm_global_api_registry: c.tm_api_registry_api = undefined;
 
 var tm_logger_api: c.tm_logger_api = undefined;
 var tm_the_truth_api: c.tm_the_truth_api = undefined;
+var tm_json_api: c.tm_json_api = undefined;
+var tm_config_api: c.tm_config_api = undefined;
+var tm_allocator_api: c.tm_allocator_api = undefined;
 
 const ink_template = "Test ink template";
 
@@ -34,7 +43,7 @@ fn initVars() void {
 }
 
 fn tick(inst: ?*c.tm_plugin_o, dt: f32) callconv(.C) void {
-    _ = tm_logger_api.printf.?(c.tm_log_type.TM_LOG_TYPE_INFO, "Plugin tick!");
+    parse("");
 }
 
 fn asset_browser__create_asset__ink_file(inst: ?*c.tm_asset_browser_create_asset_o, tt: ?*c.tm_the_truth_o, undo_scope: c.tm_tt_undo_scope_t) callconv(.C) c.tm_tt_id_t
@@ -57,7 +66,20 @@ fn truth__create_types(tt: ?*c.tm_the_truth_o) callconv(.C) void {
 
     // tm_the_truth_api->set_aspect(tt, c_file, TM_TT_ASPECT__PROPERTIES, &properties__c_file_i);
     // tm_the_truth_api->set_aspect(tt, c_file, TM_TT_ASPECT__ASSET_OPEN, &asset__open__c_file_i);
+}
 
+fn parse(str: [*:0]const u8) void {
+    var allocator = tm_allocator_api.system;
+    var config = tm_config_api.create.?(allocator);
+    
+    var err: [c.TM_JSON_ERROR_STRING_LENGTH+1]u8 = undefined;
+    const opt = @intToEnum(c.enum_tm_json_parse_ext, 0);
+
+    _ = tm_json_api.parse.?("{\"inkVersion\": 20}", config, opt, &err);
+    const root = config.*.root.?(config.*.inst);
+    const version_o = config.*.object_get.?(config.*.inst, root, c.INK_VERSION);
+    const version = config.*.to_number.?(config.*.inst, version_o);
+      _ = tm_logger_api.printf.?(c.tm_log_type.TM_LOG_TYPE_INFO, "Ink version: %f", version);
 }
 
 export fn tm_load_plugin(reg: *c.tm_api_registry_api, load: bool) void {
@@ -65,6 +87,9 @@ export fn tm_load_plugin(reg: *c.tm_api_registry_api, load: bool) void {
 
     tm_logger_api = @ptrCast([*c]c.tm_logger_api, @alignCast(8, reg.*.get.?(c.TM_LOGGER_API_NAME))).*;
     tm_the_truth_api = @ptrCast([*c]c.tm_the_truth_api, @alignCast(8, reg.*.get.?(c.TM_THE_TRUTH_API_NAME))).*;
+    tm_json_api = @ptrCast([*c]c.tm_json_api, @alignCast(8, reg.*.get.?(c.TM_JSON_API_NAME))).*;
+    tm_config_api = @ptrCast([*c]c.tm_config_api, @alignCast(8, reg.*.get.?(c.TM_CONFIG_API_NAME))).*;
+    tm_allocator_api = @ptrCast([*c]c.tm_allocator_api, @alignCast(8, reg.*.get.?(c.TM_ALLOCATOR_API_NAME))).*;
 
     initVars();
 
