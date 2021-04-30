@@ -31,7 +31,9 @@ var tm_config_api: c.tm_config_api = undefined;
 var tm_allocator_api: c.tm_allocator_api = undefined;
 
 const Container = struct {
+    content: []Container = undefined,
     countFlags: u32 = 0,
+    name: []u8 = undefined,
 };
 
 const ink_template = "Test ink template";
@@ -104,6 +106,7 @@ const ParseError = error {
     InkVersionNotFound,
     InkVersionNot20,
     RootNotFound,
+    OutOfMemory,
 };
 
 fn parseStory(jsonString: [*:0]const u8) !Container {
@@ -132,13 +135,33 @@ fn parseStory(jsonString: [*:0]const u8) !Container {
     return itemToContainer(config, root);
 }
 
-fn itemToContainer(config: c.tm_config_i, item: c.tm_config_item_t) !Container {
+fn arrayToObjectList(config: c.tm_config_i, items: []c.tm_config_item_t) ![]Container {
+    const allocator = std.heap.c_allocator;
+    const objects = try allocator.alloc(Container, items.len);
+    for (items) |item, i| {
+        objects[i] = try itemToRuntimeObject(config, item);
+    }
+    return objects; 
+}
+
+fn itemType(item: c.tm_config_item_t) c.enum_tm_config_type {
+    return @intToEnum(c.enum_tm_config_type, @intCast(c_int, item.u32 & 7));
+}
+
+fn itemToRuntimeObject(config: c.tm_config_i, item: c.tm_config_item_t) !Container {
+    if (itemType(item) == c.enum_tm_config_type.TM_CONFIG_TYPE_ARRAY) {
+        return itemToContainer(config, item);
+    }
+    return Container{};
+}
+
+fn itemToContainer(config: c.tm_config_i, item: c.tm_config_item_t) ParseError!Container {
     var container = Container{};
 
     var items: [*c]c.tm_config_item_t = undefined;
     const n = config.to_array.?(config.inst, item, &items);
 
-    // TODO: arrayToObjectList()
+    container.content = try arrayToObjectList(config, items[0..n-1]);
 
     // Final object in the array is always a combination of
     //  - named content
@@ -155,15 +178,14 @@ fn itemToContainer(config: c.tm_config_i, item: c.tm_config_item_t) !Container {
             container.countFlags = @floatToInt(u32, config.to_number.?(config.inst, lastValues[i]));
              _ = tm_logger_api.printf.?(c.tm_log_type.TM_LOG_TYPE_INFO, "Count flags %d.\n", container.countFlags);
         } else if (std.cstr.cmp(keyStr, "#n") == 0) {
-            // TODO: Read name
+            const allocator = std.heap.c_allocator;
+            const name = config.to_string.?(config.inst, lastValues[i]);
+            container.name = try std.mem.dupe(allocator, u8, name[0..c.strlen(name)]);
         } else {
             // TODO: Add to namedOnlyContent
         }
     }
-
-
-
-    return Container{};
+    return container;
 }
 
 export fn tm_load_plugin(reg: *c.tm_api_registry_api, load: bool) void {
