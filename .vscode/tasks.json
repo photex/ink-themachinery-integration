@@ -1,0 +1,29 @@
+{
+    "version": "2.0.0",
+    "type": "shell",
+    "problemMatcher": "$msCompile",
+    "tasks": [
+        {
+            "label": "build",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "windows": {
+                "command": "C:/Users/nikla/zig/zig",
+                "args": [
+                    "build-lib",
+                    "tm_ink.zig",
+                    "-I",
+                    "C:/work/themachinery",
+                    "--library",
+                    "c",
+                    "-dynamic"
+                ]
+            },
+            "problemMatcher": [
+                "$msCompile"
+            ]
+        }
+    ]
+}
